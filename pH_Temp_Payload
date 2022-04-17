@@ -1,0 +1,123 @@
+#include <TheThingsNetwork.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+
+// Set your AppEUI and AppKey
+const char *appEui = "70B3D57ED000A01C";
+const char *appKey = "A64B33FEC710745CC1E5C373F85F2C39";
+
+#define loraSerial Serial1
+#define debugSerial Serial
+
+#define ONE_WIRE_BUS 4
+// Setup a oneWire instance to communicate with any OneWire devices
+OneWire oneWire(ONE_WIRE_BUS);
+// Pass our oneWire reference to Dallas Temperature sensor
+DallasTemperature sensors(&oneWire);
+
+// Replace REPLACE_ME with TTN_FP_EU868 or TTN_FP_US915
+#define freqPlan TTN_FP_US915
+
+TheThingsNetwork ttn(loraSerial, debugSerial, freqPlan);
+
+int sensorPin_Temp = 4;
+int sensorPin_pH = A1;
+int TempValue = 0;
+int pHValue = 0;
+float ad7 = 322.0;
+float ad4 = 431.0;
+int Temp_SENSOR_THRESHOLD_LOW = 2;
+int Temp_SENSOR_THRESHOLD_HIGH = 50;
+int pH_SENSOR_THRESHOLD_LOW = 0;
+int ph_SENSOR_THRESHOLD_HIGH = 14;
+
+void setup() {
+  pinMode(sensorPin_Temp, INPUT);
+  pinMode(sensorPin_pH, INPUT);
+
+  loraSerial.begin(57600);
+  debugSerial.begin(9600);
+
+  // Wait a maximum of 10s for Serial Monitor
+  while (!debugSerial && millis() < 10000)
+    ;
+
+  debugSerial.println("-- STATUS");
+  ttn.showStatus();
+
+  debugSerial.println("-- JOIN");
+  ttn.join(appEui, appKey);
+}
+
+void loop() {
+  Get_pH();
+  TempValue = analogRead(sensorPin_Temp);
+  pHValue = analogRead(sensorPin_pH);
+  Serial.println(TempValue);
+  Serial.print(pHValue);
+ 
+
+  sensors.requestTemperatures();
+  Serial.print("Celsius temperature: ");
+  // Why "byIndex"? You can have more than one IC on the same bus. 0 refers to the first IC on the wire
+  Serial.print(sensors.getTempCByIndex(0));
+  Serial.print(" - Fahrenheit temperature: ");
+  Serial.println(sensors.getTempFByIndex(0));
+  uint8_t sensor_tempC = sensors.getTempCByIndex(0);
+  uint8_t sensors_tempF = sensors.getTempFByIndex(0);
+  uint8_t sensors_pH = pHValue;
+ 
+  if(TempValue < Temp_SENSOR_THRESHOLD_LOW || TempValue > Temp_SENSOR_THRESHOLD_HIGH){
+    // Prepare payload of 2 bytes to indicate sensor value
+    #define PAYLOAD_SIZE 2  
+    byte payload[PAYLOAD_SIZE];
+    payload[0] = sensor_tempC;  //highByte(sensorValue);
+    payload[1] = sensors_tempF; //lowByte(sensorValue);
+    //payload[2] = sensors_pH;
+    // Send it as an Uplink
+    ttn.sendBytes(payload, PAYLOAD_SIZE);
+    debugSerial.println("Sending data");
+
+    delay(10000);
+  }
+ 
+ 
+  if(pHValue < pH_SENSOR_THRESHOLD_LOW || pHValue > ph_SENSOR_THRESHOLD_HIGH){
+    // Prepare payload of 2 bytes to indicate sensor value
+    #define PAYLOAD_SIZE 1  
+     byte payload[PAYLOAD_SIZE];
+     payload[2] = sensors_pH;
+
+    // Send it as an Uplink
+    ttn.sendBytes(payload, PAYLOAD_SIZE);
+    debugSerial.println("Sending data");
+
+    delay(10000);
+  }
+ 
+  else{
+    delay(1000);
+  }
+}
+
+void Get_pH()
+{
+  int current_pH_Value = 0;
+
+  for (int i = 0; i < 10; i++)
+  {
+    current_pH_Value += analogRead (sensorPin_pH);
+    delay(100);
+  }
+pHValue = (current_pH_Value / 10);
+Serial.println(pHValue);
+float m = (-3.0/(ad4-ad7));
+//Serial.println (m);
+float c = 7-(m*ad7);
+//Serial.println(c);
+float a = ((m*pHValue)+c);
+Serial.print("PH =");
+Serial.println(a);
+delay(500);
+}
